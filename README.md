@@ -2,11 +2,20 @@
 
 **English** | [中文](README.zh-CN.md)
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6.svg)](#requirements)
+[![Node.js >= 18](https://img.shields.io/badge/node-%3E%3D18-339933.svg?logo=node.js&logoColor=white)](#requirements)
+[![OpenCode Desktop 2.0.31](https://img.shields.io/badge/OpenCode%20Desktop-2.0.31-6E56CF.svg)](#notes--compatibility)
+
+> ⭐ 献给每个使用 opencode 的朋友，如果喜欢可以点个 star，谢谢您！
+>
+> ⭐ To every friend using OpenCode — if you like it, please give it a star. Thank you!
+
 An always-on-top desktop widget that shows the **live todo list and progress** of
 the [OpenCode](https://opencode.ai) desktop app — for the session/tab you are
 currently looking at.
 
-![OpenCode Todo HUD](screenshot.png)
+![OpenCode Todo HUD](demo.gif)
 
 ## Features
 
@@ -79,7 +88,7 @@ PowerShell/WinForms window renders it.
 
 ## Credits
 
-- [`opencode-todolist`](https://www.npmjs.com/package/opencode-todolist) — the plugin that provides the todo tools.
+- [`opencode-todolist`](https://github.com/aiev/opencode-todolist) by [@aiev](https://github.com/aiev) — the plugin that provides the todo tools this HUD reads (`todowrite` / `todoread`).
 
 ## License
 

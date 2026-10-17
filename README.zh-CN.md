@@ -2,10 +2,19 @@
 
 [English](README.md) | **中文**
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6.svg)](#前置条件)
+[![Node.js >= 18](https://img.shields.io/badge/node-%3E%3D18-339933.svg?logo=node.js&logoColor=white)](#前置条件)
+[![OpenCode Desktop 2.0.31](https://img.shields.io/badge/OpenCode%20Desktop-2.0.31-6E56CF.svg)](#说明--兼容性)
+
+> ⭐ 献给每个使用 opencode 的朋友，如果喜欢可以点个 star，谢谢您！
+>
+> ⭐ To every friend using OpenCode — if you like it, please give it a star. Thank you!
+
 一个常驻置顶的桌面小窗，实时显示 [OpenCode](https://opencode.ai) 桌面版里
 **你当前正在看的那个会话/标签页**的待办清单与进度。
 
-![OpenCode Todo HUD](screenshot.png)
+![OpenCode Todo HUD](demo.gif)
 
 ## 特性
 
@@ -72,7 +81,7 @@
 
 ## 致谢
 
-- [`opencode-todolist`](https://www.npmjs.com/package/opencode-todolist) —— 提供待办工具的插件
+- [`opencode-todolist`](https://github.com/aiev/opencode-todolist)（作者 [@aiev](https://github.com/aiev)）—— 提供本 HUD 所读取的待办工具（`todowrite` / `todoread`）
 
 ## 许可
 
