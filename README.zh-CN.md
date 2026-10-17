@@ -11,14 +11,15 @@
 >
 > ⭐ To every friend using OpenCode — if you like it, please give it a star. Thank you!
 
-一个常驻置顶的桌面小窗，实时显示 [OpenCode](https://opencode.ai) 桌面版里
-**你当前正在看的那个会话/标签页**的待办清单与进度。
+一个**贴在 OpenCode 窗口之上**的桌面小窗，实时显示 [OpenCode](https://opencode.ai)
+桌面版里 **你当前正在看的那个会话/标签页**的待办清单与进度。
 
 ![OpenCode Todo HUD](demo.gif)
 
 ## 特性
 
-- **置顶、无边框**的进度窗（不占任务栏；拖动移动，拖边缘/四角缩放）
+- **只贴在 OpenCode 之上**（不是全局置顶）：切到浏览器等其它程序时，别的窗口照样盖住它；OpenCode 最小化它会跟着隐藏，OpenCode 关闭它也跟着关闭
+- **无边框**窗口，不占任务栏；拖动移动，拖边缘或四角缩放
 - **跟随活动标签页** —— 在 OpenCode 里切换会话，窗口约 0.3 秒内跟着切过去
 - 显示 `Todo 完成/总数`、进度条，以及每一条的状态：
   - `[✔]` 绿色 —— 已完成
@@ -77,6 +78,7 @@
 - 仅 Windows —— 界面是 PowerShell 驱动的 WinForms
 - 上面这两个库结构是 OpenCode 桌面版的**内部实现**，版本间可能变化。本项目在
   **2.0.31** 上验证；若未来版本改动，窗口会显示 *no todo list here*
+- 窗口会**挂到 OpenCode 主窗口之上**（进程名以 `opencode` 开头、类名 `Chrome_WidgetWin_1` 的顶层窗口），作为它的*附属窗口*。OpenCode 还没启动时它就等着；OpenCode 一关，它跟着关
 - 中文等非 ASCII 待办文本完全支持（按 UTF-8 读回）
 
 ## 致谢

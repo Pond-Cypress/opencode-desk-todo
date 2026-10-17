@@ -11,16 +11,19 @@
 >
 > ⭐ To every friend using OpenCode — if you like it, please give it a star. Thank you!
 
-An always-on-top desktop widget that shows the **live todo list and progress** of
-the [OpenCode](https://opencode.ai) desktop app — for the session/tab you are
-currently looking at.
+A desktop widget that stays **attached above the OpenCode window** and shows the
+**live todo list and progress** of the [OpenCode](https://opencode.ai) desktop app
+— for the session/tab you are currently looking at.
 
 ![OpenCode Todo HUD](demo.gif)
 
 ## Features
 
-- **Always-on-top, borderless** progress window (no taskbar button; drag to move,
-  drag any edge/corner to resize).
+- **Attached to the OpenCode window** (not to the whole desktop): it stays above
+  OpenCode, goes behind any other app you switch to, hides when OpenCode is
+  minimised, and closes when OpenCode closes.
+- **Borderless** window with no taskbar button; drag to move, drag any edge or
+  corner to resize.
 - **Follows the active tab** — switch sessions in OpenCode and the HUD follows
   within ~0.3 s.
 - Shows `Todo done/total`, a progress bar, and every item:
@@ -84,6 +87,10 @@ PowerShell/WinForms window renders it.
 - The database layouts above are **internal** to OpenCode Desktop and may change
   between versions. Verified against OpenCode Desktop **2.0.31**; if a future
   release moves them, the HUD will simply show *no todo list here*.
+- The HUD attaches to the OpenCode main window — the top-level
+  `Chrome_WidgetWin_1` window of a process whose name starts with `opencode` — as
+  an *owned* window. If OpenCode is not running yet it simply waits; when OpenCode
+  closes, the HUD closes with it.
 - Non-ASCII todo text is fully supported (read back as UTF-8).
 
 ## Credits

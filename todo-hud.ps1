@@ -13,10 +13,20 @@ Add-Type -AssemblyName System.Drawing
 
 Add-Type @"
 using System;
+using System.Text;
 using System.Runtime.InteropServices;
 public class JPTSWin32 {
+  public delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
   [DllImport("user32.dll")] public static extern bool ReleaseCapture();
   [DllImport("user32.dll")] public static extern int SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
+  [DllImport("user32.dll", EntryPoint="SetWindowLongPtrW", SetLastError=true)] public static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+  [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr lParam);
+  [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassNameW(IntPtr hWnd, StringBuilder s, int n);
 }
 "@
 
@@ -123,6 +133,9 @@ let pending=null;
 function schedule(){ if(pending)return; pending=setTimeout(function(){ pending=null; tick(); },20); }
 tick();
 setInterval(tick,250);
+// exit if the parent HUD process is gone (avoids orphan pollers)
+const PPID=process.ppid;
+setInterval(function(){ try{ process.kill(PPID,0); }catch(e){ process.exit(0); } },2000);
 try{ fs.watch(path.dirname(DRAFTS), function(ev,fn){ if(!fn||String(fn).indexOf('drafts.sqlite')===0) schedule(); }); }catch(e){}
 try{ fs.watch(path.dirname(DB), function(ev,fn){ if(!fn||String(fn).indexOf('opencode.db')===0) schedule(); }); }catch(e){}
 '@
@@ -153,8 +166,12 @@ $PEND = [System.Drawing.Color]::FromArgb(150, 150, 160)
 
 # ---- window ---------------------------------------------------------------
 $form = New-Object HudForm
+$form.Text = 'OpenCode Todo HUD'
 $form.FormBorderStyle = 'None'
-$form.TopMost = $true
+# NOT top-most globally: the window is attached as an OWNED window of the
+# OpenCode main window (see Attach-ToOpenCode), so it stays above OpenCode but
+# goes behind any other application the user switches to.
+$form.TopMost = $false
 $form.ShowInTaskbar = $false
 $form.BackColor = $BG
 $form.Opacity = 0.95
@@ -239,6 +256,44 @@ $summary.ContextMenuStrip = $menu
 $title.ContextMenuStrip = $menu
 $bar.ContextMenuStrip = $menu
 
+# ---- keep the HUD attached to the OpenCode main window --------------------
+# An OWNED window always sits above its owner, but goes behind any other
+# application the user switches to; it also minimises with the owner.
+$script:ownerHwnd = [IntPtr]::Zero
+
+function Find-OpenCodeWindow {
+  $script:ocFound = [IntPtr]::Zero
+  $cb = [JPTSWin32+EnumProc]{
+    param($h, $l)
+    if (-not [JPTSWin32]::IsWindowVisible($h)) { return $true }
+    if ([JPTSWin32]::GetWindow($h, 4) -ne [IntPtr]::Zero) { return $true }   # GW_OWNER -> must be top-level
+    $sb = New-Object System.Text.StringBuilder 256
+    [void][JPTSWin32]::GetClassNameW($h, $sb, 256)
+    if ($sb.ToString() -ne 'Chrome_WidgetWin_1') { return $true }
+    $procId = 0
+    [void][JPTSWin32]::GetWindowThreadProcessId($h, [ref]$procId)
+    $p = Get-Process -Id $procId -ErrorAction SilentlyContinue
+    if ($p -and $p.ProcessName -match '^opencode') { $script:ocFound = $h; return $false }
+    return $true
+  }
+  [void][JPTSWin32]::EnumWindows($cb, [IntPtr]::Zero)
+  return $script:ocFound
+}
+
+function Sync-Owner {
+  $oc = Find-OpenCodeWindow
+  if ($oc -eq [IntPtr]::Zero) {
+    # OpenCode is gone -> the HUD goes with it
+    if ($script:ownerHwnd -ne [IntPtr]::Zero) { $form.Close() }
+    return
+  }
+  if ($oc -ne $script:ownerHwnd) {
+    [void][JPTSWin32]::SetWindowLongPtr($form.Handle, -8, $oc)                              # GWLP_HWNDPARENT
+    [void][JPTSWin32]::SetWindowPos($form.Handle, [IntPtr]::Zero, 0, 0, 0, 0, 0x13)          # HWND_TOP | NOMOVE|NOSIZE|NOACTIVATE
+    $script:ownerHwnd = $oc
+  }
+}
+
 function Update-Hud {
   if (-not $nodeOk) {
     $title.Text = 'OpenCode Todo  |  Node.js not found'
@@ -296,7 +351,13 @@ $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 150
 $timer.Add_Tick({ Update-Hud })
 
+$ownerTimer = New-Object System.Windows.Forms.Timer
+$ownerTimer.Interval = 1000
+$ownerTimer.Add_Tick({ Sync-Owner })
+
 $form.Add_Shown({
+  Sync-Owner
+  $ownerTimer.Start()
   Start-Poller
   Start-Sleep -Milliseconds 400
   Update-Hud
@@ -304,6 +365,7 @@ $form.Add_Shown({
 })
 $form.Add_FormClosed({
   $timer.Stop()
+  $ownerTimer.Stop()
   if ($pollProc -and -not $pollProc.HasExited) { Stop-Process -Id $pollProc.Id -Force -ErrorAction SilentlyContinue }
   try { Set-Content -Path $boundsPath -Value ($form.Left.ToString() + ',' + $form.Top.ToString() + ',' + $form.Width.ToString() + ',' + $form.Height.ToString()) -Encoding ASCII } catch {}
 })
