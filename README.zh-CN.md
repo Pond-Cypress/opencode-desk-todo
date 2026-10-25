@@ -81,8 +81,9 @@
 
 ## 说明 / 兼容性
 
-- 仅 Windows —— 界面是 PowerShell 驱动的 WinForms；Windows PowerShell 5.1（系统自带）
-  与 PowerShell 7+（`pwsh`）都能跑，`start.cmd` 用的是系统自带的 5.1，免安装任何东西
+- 仅 Windows —— 界面是 PowerShell 驱动的 WinForms；Windows PowerShell 5.1（系统自带）与
+  PowerShell 7+（`pwsh`）都能跑，`start.cmd` 在装了 `pwsh` 时优先用它、否则回落系统自带的 5.1，
+  免安装任何东西
 - 上面这两个库结构是 OpenCode 桌面版的**内部实现**，版本间可能变化。本项目在
   **2.0.31** 上验证；若未来版本改动，窗口会显示 *no todo list here*
 - 窗口会**挂到 OpenCode 主窗口之上**（进程名以 `opencode` 开头、类名 `Chrome_WidgetWin_1` 的顶层窗口），作为它的*附属窗口*。OpenCode 还没启动时它就等着；OpenCode 一关，它跟着关

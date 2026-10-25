@@ -96,8 +96,9 @@ PowerShell/WinForms window renders it.
 ## Notes / compatibility
 
 - Windows only — the UI is WinForms driven from PowerShell. It runs on Windows
-  PowerShell 5.1 (shipped with Windows) and on PowerShell 7+ (`pwsh`); `start.cmd`
-  uses the built-in 5.1 so nothing extra has to be installed.
+  PowerShell 5.1 (shipped with Windows) and on PowerShell 7+ (`pwsh`);
+  `start.cmd` uses `pwsh` when it is installed and falls back to the built-in
+  5.1 otherwise, so nothing extra has to be installed.
 - The database layouts above are **internal** to OpenCode Desktop and may change
   between versions. Verified against OpenCode Desktop **2.0.31**; if a future
   release moves them, the HUD will simply show *no todo list here*.
