@@ -22,14 +22,22 @@ A desktop widget that stays **attached above the OpenCode window** and shows the
 - **Attached to the OpenCode window** (not to the whole desktop): it stays above
   OpenCode, goes behind any other app you switch to, hides when OpenCode is
   minimised, and closes when OpenCode closes.
-- **Borderless** window with no taskbar button; drag to move, drag any edge or
-  corner to resize.
+- **Borderless** window with no taskbar button; drag the header row to move,
+  drag any edge or corner to resize.
 - **Follows the active tab** — switch sessions in OpenCode and the HUD follows
   within ~0.3 s.
 - Shows `Todo done/total`, a progress bar, and every item:
   - `[✔]` green — completed
   - `[>]` amber — in progress
   - `[ ]` grey — pending
+- **The text scales with the window.** Long steps wrap instead of overflowing,
+  and the font size is fitted to the frame: make the window wider/taller and the
+  text grows to fill it; a long list shrinks it. Every step stays visible — no
+  horizontal scrolling, and no vertical scrollbar unless the window is too small
+  for the list even at the smallest readable size (then it scrolls at a readable
+  size instead of hiding steps).
+- **The step text is selectable**: click and drag to select, `Ctrl+C` to copy,
+  or right-click → *Copy selected* / *Select all*.
 - Remembers its size and position between runs.
 - **Read-only and fully offline**: no network access, and it never writes to
   OpenCode's data.
@@ -40,6 +48,7 @@ A desktop widget that stays **attached above the OpenCode window** and shows the
 |---|---|
 | OS | Windows 10 / 11 |
 | [Node.js](https://nodejs.org) | 18 or newer (uses the built-in `node:sqlite`) |
+| PowerShell | Windows PowerShell 5.1 (built in) **or** PowerShell 7+ (`pwsh`) |
 | OpenCode Desktop | tested with **2.0.31** |
 | Plugin | [`opencode-todolist`](https://www.npmjs.com/package/opencode-todolist) |
 
@@ -65,9 +74,12 @@ A desktop widget that stays **attached above the OpenCode window** and shows the
 
 | Action | How |
 |---|---|
-| Move | drag anywhere on the window |
+| Move | drag the **header row** (title / progress area) |
 | Resize | drag any edge or corner (the cursor shows a resize arrow) |
-| Refresh / reset size / close | right-click the window |
+| Select / copy a step | click and drag inside the list, then `Ctrl+C` |
+| Copy everything | right-click the list → *Select all* (or `Ctrl+A`, `Ctrl+C`) |
+| Refresh / reset size / close | right-click the header or the list |
+| Fit text to window | resize the window — text scales automatically |
 
 ## How it works
 
@@ -83,7 +95,9 @@ PowerShell/WinForms window renders it.
 
 ## Notes / compatibility
 
-- Windows only — the UI is WinForms driven from PowerShell.
+- Windows only — the UI is WinForms driven from PowerShell. It runs on Windows
+  PowerShell 5.1 (shipped with Windows) and on PowerShell 7+ (`pwsh`); `start.cmd`
+  uses the built-in 5.1 so nothing extra has to be installed.
 - The database layouts above are **internal** to OpenCode Desktop and may change
   between versions. Verified against OpenCode Desktop **2.0.31**; if a future
   release moves them, the HUD will simply show *no todo list here*.

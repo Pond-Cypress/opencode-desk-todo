@@ -32,7 +32,7 @@ public class JPTSWin32 {
 
 # borderless form that exposes resize hit-zones (edge arrows) while
 # keeping a normal client area for drag-to-move.
-Add-Type -ReferencedAssemblies @('System.Windows.Forms','System.Drawing') -TypeDefinition @"
+$formSrc = @"
 using System;
 using System.Drawing;
 using System.Windows.Forms;
@@ -65,6 +65,30 @@ public class HudForm : Form {
   }
 }
 "@
+
+# Windows PowerShell 5.1 resolves framework assemblies by simple name, while
+# PowerShell 7 (.NET) needs real reference paths plus the WinForms dependency
+# closure - otherwise the compiler fails with CS0012 on Component / Message.
+if ($PSVersionTable.PSEdition -eq 'Core') {
+  $fwDir = Split-Path ([System.Windows.Forms.Form].Assembly.Location) -Parent
+  $refs = @(
+    'System.Windows.Forms.dll','System.Windows.Forms.Primitives.dll',
+    'System.Drawing.Common.dll','System.Drawing.Primitives.dll',
+    'System.ComponentModel.Primitives.dll','System.ComponentModel.TypeConverter.dll',
+    'System.Runtime.dll','System.Collections.dll'
+  ) | ForEach-Object { Join-Path $fwDir $_ } | Where-Object { Test-Path $_ }
+  try {
+    Add-Type -ReferencedAssemblies $refs -TypeDefinition $formSrc -ErrorAction Stop
+  } catch {
+    # last resort: hand the compiler every assembly that is already loaded
+    $all = @([AppDomain]::CurrentDomain.GetAssemblies() |
+      Where-Object { -not $_.IsDynamic -and $_.Location } |
+      ForEach-Object { $_.Location } | Select-Object -Unique)
+    Add-Type -ReferencedAssemblies $all -TypeDefinition $formSrc
+  }
+} else {
+  Add-Type -ReferencedAssemblies @('System.Windows.Forms','System.Drawing') -TypeDefinition $formSrc
+}
 
 $ErrorActionPreference = 'SilentlyContinue'
 
@@ -200,8 +224,12 @@ $title.Text = 'OpenCode Todo'
 $title.ForeColor = $DIM
 $title.Font = New-Object System.Drawing.Font('Consolas', 8.5)
 $title.Location = New-Object System.Drawing.Point(12, 9)
-$title.AutoSize = $true
-$title.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Left
+# fixed-width + ellipsis: a long session title is clipped to the window width
+# instead of stretching the header row past the frame.
+$title.AutoSize = $false
+$title.AutoEllipsis = $true
+$title.Size = New-Object System.Drawing.Size(336, 15)
+$title.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right
 
 $summary = New-Object System.Windows.Forms.Label
 $summary.Text = 'waiting...'
@@ -227,14 +255,20 @@ $list.BorderStyle = 'None'
 $list.BackColor = $BG
 $list.ForeColor = $FG
 $list.Font = New-Object System.Drawing.Font('Consolas', 9)
-$list.ScrollBars = 'Vertical'
-$list.WordWrap = $false
+# No scrollbars at all: long lines WRAP and the font size is auto-fitted to the
+# window (see Render-List) so every step is always fully visible.
+$list.ScrollBars = 'None'
+$list.WordWrap = $true
 $list.DetectUrls = $false
+$list.ShortcutsEnabled = $true
+$list.HideSelection = $false
 $list.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right -bor [System.Windows.Forms.AnchorStyles]::Bottom
 
 $form.Controls.AddRange(@($title, $summary, $bar, $list))
 
-# drag by the client area (edges are handled by HudForm hit-test)
+# drag by the header row (title / summary / progress bar).
+# The step list is deliberately NOT a drag surface any more: mousedown there
+# belongs to text selection so you can select and copy the steps.
 $drag = {
   [JPTSWin32]::ReleaseCapture() | Out-Null
   [JPTSWin32]::SendMessage($form.Handle, 0xA1, 0x2, 0) | Out-Null
@@ -242,19 +276,28 @@ $drag = {
 $form.Add_MouseDown($drag)
 $summary.Add_MouseDown($drag)
 $title.Add_MouseDown($drag)
-$list.Add_MouseDown($drag)
 $bar.Add_MouseDown($drag)
 
-# right-click menu
+# right-click menu (frame)
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $miRefresh = $menu.Items.Add('Refresh now')
 $miReset = $menu.Items.Add('Reset size/position')
 $miClose = $menu.Items.Add('Close')
 $form.ContextMenuStrip = $menu
-$list.ContextMenuStrip = $menu
 $summary.ContextMenuStrip = $menu
 $title.ContextMenuStrip = $menu
 $bar.ContextMenuStrip = $menu
+
+# right-click menu (step list): copy actions first, then the frame actions.
+# The list needs its OWN strip - a ToolStripItem can only live in one menu.
+$listMenu = New-Object System.Windows.Forms.ContextMenuStrip
+$miCopy = $listMenu.Items.Add('Copy selected')
+$miCopyAll = $listMenu.Items.Add('Select all')
+[void]$listMenu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
+$miLRefresh = $listMenu.Items.Add('Refresh now')
+$miLReset = $listMenu.Items.Add('Reset size/position')
+$miLClose = $listMenu.Items.Add('Close')
+$list.ContextMenuStrip = $listMenu
 
 # ---- keep the HUD attached to the OpenCode main window --------------------
 # An OWNED window always sits above its owner, but goes behind any other
@@ -294,12 +337,156 @@ function Sync-Owner {
   }
 }
 
+# ---- content rendering: wrap + auto fit -----------------------------------
+# The step list never scrolls. Lines wrap to the window width and the whole
+# layout is scaled to the frame: a bigger window -> bigger text, more/longer
+# steps -> smaller text, so every step is always fully visible.
+$script:items = @()
+$script:needFit = $true
+
+function Measure-Stack {
+  param($font, $aw)
+  $total = 0
+  $size = New-Object System.Drawing.Size([int]$aw, 20000)
+  foreach ($it in $script:items) {
+    $sz = [System.Windows.Forms.TextRenderer]::MeasureText(
+      $it.line, $font, $size,
+      ([System.Windows.Forms.TextFormatFlags]::WordBreak -bor [System.Windows.Forms.TextFormatFlags]::NoPadding))
+    $total += $sz.Height
+  }
+  return $total
+}
+
+# header text / progress bar sizes derived from the step font size, so the
+# whole card scales together instead of only the list changing.
+function Get-HeaderScale {
+  param($size)
+  return @{
+    title = [double][Math]::Min(13.0, [Math]::Max(7.5, $size * 0.55))
+    summ  = [double][Math]::Min(17.0, [Math]::Max(9.5, $size * 0.78))
+    bar   = [int][Math]::Min(18, [Math]::Max(6, [Math]::Round($size * 0.45)))
+    gap   = [int][Math]::Max(5, [Math]::Round($size * 0.35))
+  }
+}
+
+# where the list box would sit for a given font size (pure arithmetic: no
+# control is touched, so it is cheap inside the search loop)
+function Predict-ListBox {
+  param($size, $cw, $ch)
+  $h = Get-HeaderScale $size
+  $titleH = [int][Math]::Ceiling($h.title * 1.65)
+  $summH = [int][Math]::Ceiling($h.summ * 1.65)
+  $top = 9 + $titleH + 3 + $summH + $h.gap + $h.bar + 8
+  return @{ top = $top; w = ($cw - 20); h = ($ch - $top - 8) }
+}
+
+function Get-FitSize {
+  param($cw, $ch)
+  $size = 26.0
+  while ($size -ge 5.5) {
+    $box = Predict-ListBox $size $cw $ch
+    if ($box.h -ge 20) {
+      $f = New-Object System.Drawing.Font('Consolas', [float]$size, [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Point)
+      $fits = (Measure-Stack $f ($box.w - 12)) -le (($box.h - 4) * 0.98)
+      $f.Dispose()
+      if ($fits) { return [double]$size }
+    }
+    $size = $size - 1.0
+  }
+  return [double]5.5
+}
+
+function Apply-Layout {
+  param($size)
+  $cw = $form.ClientSize.Width
+  $ch = $form.ClientSize.Height
+  $h = Get-HeaderScale $size
+  $title.Font = New-Object System.Drawing.Font('Consolas', [float]$h.title)
+  $summary.Font = New-Object System.Drawing.Font('Consolas', [float]$h.summ, [System.Drawing.FontStyle]::Bold)
+  $title.Left = 12; $title.Top = 9
+  $title.Width = [Math]::Max(40, $cw - 24)
+  $title.Height = $title.Font.Height
+  $summary.Left = 12
+  $summary.Top = $title.Bottom + 3
+  $bar.Left = 12
+  $bar.Width = [Math]::Max(40, $cw - 24)
+  $bar.Top = $summary.Bottom + $h.gap
+  $bar.Height = $h.bar
+  $list.Left = 10
+  $list.Width = [Math]::Max(40, $cw - 20)
+  $list.Top = $bar.Bottom + 8
+  $list.Height = [Math]::Max(20, $ch - $list.Top - 8)
+}
+
+function Test-ListOverflow {
+  $n = $list.TextLength
+  if ($n -le 0) { return $false }
+  # position of the last character tells the truth about the real wrap, which
+  # covers glyph fallback (CJK) that a pure MeasureText estimate can miss.
+  $p = $list.GetPositionFromCharIndex($n - 1)
+  return (($p.Y + $list.Font.Height) -gt ($list.ClientSize.Height - 1))
+}
+
+function Draw-Items {
+  param($size)
+  $list.Font = New-Object System.Drawing.Font('Consolas', [float]$size)
+  $list.Clear() | Out-Null
+  $n = $script:items.Count
+  for ($i = 0; $i -lt $n; $i++) {
+    $it = $script:items[$i]
+    $text = $it.line
+    if ($i -lt $n - 1) { $text = $text + "`n" }
+    $len0 = $list.TextLength
+    $list.AppendText($text)
+    $list.Select($len0, $text.Length)
+    $list.SelectionColor = $it.color
+  }
+  $list.Select(0, 0) | Out-Null
+  # appending text leaves the view scrolled to the end; whenever the list has
+  # to scroll, start at the first step instead of mid-list
+  $list.ScrollToCaret()
+}
+
+function Render-List {
+  $cw = $form.ClientSize.Width
+  $ch = $form.ClientSize.Height
+  if ($cw -lt 80 -or $ch -lt 60) { return }
+  if ($script:items.Count -eq 0) {
+    Apply-Layout 12.0
+    if ($list.ScrollBars -ne [System.Windows.Forms.RichTextBoxScrollBars]::None) { $list.ScrollBars = 'None' }
+    $list.Clear() | Out-Null
+    return
+  }
+  $size = Get-FitSize $cw $ch
+  # the estimate above is generous; this loop verifies the REAL wrap in the
+  # control and steps down until nothing is clipped (belt and braces).
+  for ($guard = 0; $guard -lt 10; $guard++) {
+    Apply-Layout $size
+    Draw-Items $size
+    if (-not (Test-ListOverflow)) {
+      if ($list.ScrollBars -ne [System.Windows.Forms.RichTextBoxScrollBars]::None) { $list.ScrollBars = 'None' }
+      return
+    }
+    if ($size -le 5.5) {
+      # Last resort: the window is too small for this many steps even at the
+      # smallest readable size. Never hide steps - show them at a readable
+      # size with a scrollbar instead of shrinking to an illegible 5.5 pt.
+      Apply-Layout 9.0
+      $list.ScrollBars = 'Vertical'
+      Draw-Items 9.0
+      return
+    }
+    $size = [Math]::Max(5.5, $size - 1.0)
+  }
+}
+
 function Update-Hud {
   if (-not $nodeOk) {
     $title.Text = 'OpenCode Todo  |  Node.js not found'
     $summary.Text = 'install Node.js 18+ (nodejs.org)'
     $bar.Value = 0
-    $list.Text = ''
+    $script:items = @()
+    $list.Clear() | Out-Null
     return
   }
   if (-not $pollProc -or $pollProc.HasExited) { Start-Poller }
@@ -312,12 +499,13 @@ function Update-Hud {
   if (-not $s) { return }
   $t = $s.title
   if (-not $t) { $t = $s.error }
-  if ($t -and $t.Length -gt 34) { $t = $t.Substring(0, 33) + [char]0x2026 }
+  # no manual truncation any more: the label is width-bound with AutoEllipsis
   $title.Text = 'OpenCode Todo  |  ' + $t
   if (-not $s.ok) {
     $summary.Text = 'no todo list here'
     $bar.Value = 0
-    $list.Text = ''
+    $script:items = @()
+    $list.Clear() | Out-Null
     return
   }
   $items = @($s.todos)
@@ -326,30 +514,44 @@ function Update-Hud {
   $pct = if ($total -gt 0) { [int][Math]::Round(100.0 * $done / $total) } else { 0 }
   $summary.Text = ('Todo ' + $done + '/' + $total + '  ' + $pct + '%')
   $bar.Value = $pct
-  $list.Clear() | Out-Null
+  $script:items = @()
   foreach ($it in $items) {
     $mark = '[ ]'; $col = $PEND
     if ($it.status -eq 'completed') { $mark = '[' + [char]0x2714 + ']'; $col = $OK }
     elseif ($it.status -eq 'in_progress') { $mark = '[>]'; $col = $RUN }
-    $line = $mark + ' ' + $it.content + "`n"
-    $len0 = $list.TextLength
-    $list.AppendText($line)
-    $list.Select($len0, $line.Length)
-    $list.SelectionColor = $col
+    $script:items += [pscustomobject]@{ line = ($mark + ' ' + $it.content); color = $col }
   }
-  $list.Select(0, 0) | Out-Null
+  $script:needFit = $true
+  Render-List
 }
 
-$miRefresh.Add_Click({ Update-Hud })
-$miReset.Add_Click({
+$doRefresh = { $script:lastRaw = ''; $script:needFit = $true; Update-Hud }
+$doReset = {
   $form.Size = New-Object System.Drawing.Size(360, 210)
   $form.Location = New-Object System.Drawing.Point(($sa.Right - 380), ($sa.Top + 40))
-})
-$miClose.Add_Click({ $form.Close() })
+  $script:needFit = $true
+}
+$doClose = { $form.Close() }
+
+$miRefresh.Add_Click($doRefresh)
+$miReset.Add_Click($doReset)
+$miClose.Add_Click($doClose)
+$miCopy.Add_Click({ $list.Copy() })
+$miCopyAll.Add_Click({ $list.SelectAll(); $list.Copy() })
+$miLRefresh.Add_Click($doRefresh)
+$miLReset.Add_Click($doReset)
+$miLClose.Add_Click($doClose)
 
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 150
-$timer.Add_Tick({ Update-Hud })
+$timer.Add_Tick({
+  if ($script:needFit) { $script:needFit = $false; Render-List }
+  Update-Hud
+})
+
+# any resize (window or list) re-fits the text to the new box
+$form.Add_Resize({ $script:needFit = $true })
+$list.Add_Resize({ $script:needFit = $true })
 
 $ownerTimer = New-Object System.Windows.Forms.Timer
 $ownerTimer.Interval = 1000
